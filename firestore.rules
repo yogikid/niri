@@ -1,0 +1,276 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function member(data) { return signedIn() && request.auth.uid in data.memberIds; }
+    function owner(data) { return signedIn() && data.ownerId == request.auth.uid; }
+    function admin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isPlaceholder == false;
+    }
+    function projectPath(id) { return /databases/$(database)/documents/projects/$(id); }
+    function taskPath(id) { return /databases/$(database)/documents/tasks/$(id); }
+    function commentPath(id) { return /databases/$(database)/documents/comments/$(id); }
+    function userPath(id) { return /databases/$(database)/documents/users/$(id); }
+    function validId(value) { return value is string && value.size() >= 1 && value.size() <= 128 && !value.matches('.*[/].*') && value != '@currentUser'; }
+    function validMembers(ids, ownerId) {
+      return ids is list && ids.size() >= 1 && ids.size() <= 20 && ownerId in ids && ids.toSet().size() == ids.size()
+        && ids.join('').size() >= ids.size() && ids.join('').size() <= 2560 && !ids.join('').matches('.*[/].*') && !('@currentUser' in ids);
+    }
+    function validDate(value) {
+      return value is string && value >= '1900-01-01'
+        && value.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
+    }
+    function seedFields(data) {
+      // Legacy seedKey values are readable/updatable; identity metadata is immutable.
+      return (!('seedKey' in data) || (data.seedKey is string && data.seedKey.size() <= 120 && data.seedKey.size() > 0 && !data.seedKey.matches('.*[/].*')))
+        && (!('seedActorId' in data) || validId(data.seedActorId));
+    }
+    function seedUnchanged(before, after) { return before.get('seedKey', null) == after.get('seedKey', null) && before.get('seedActorId', null) == after.get('seedActorId', null); }
+    function validUser(data) {
+      return data.keys().hasAll(['name', 'email', 'role', 'avatarColor', 'isPlaceholder', 'createdAt'])
+        && data.keys().hasOnly(['name', 'email', 'role', 'avatarColor', 'isPlaceholder', 'createdAt', 'updatedAt', 'seedKey', 'seedActorId'])
+        && data.name is string && data.name == data.name.trim() && data.name.size() >= 2 && data.name.size() <= 60
+        && data.email is string && data.email.size() <= 254 && (data.isPlaceholder || data.email.matches('^[^ @]+@[^ @]+[.][^ @]+$'))
+        && data.role in ['admin', 'manager', 'member'] && data.isPlaceholder is bool
+        && data.avatarColor is string && data.avatarColor.matches('^#[0-9A-Fa-f]{6}$')
+        && data.createdAt is timestamp && data.get('updatedAt', data.createdAt) is timestamp && seedFields(data);
+    }
+    function validProject(data) {
+      return data.keys().hasAll(['code', 'name', 'description', 'ownerId', 'memberIds', 'status', 'priority', 'startDate', 'dueDate', 'taskTotal', 'taskDone', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['code', 'name', 'description', 'ownerId', 'memberIds', 'status', 'priority', 'startDate', 'dueDate', 'taskTotal', 'taskDone', 'createdAt', 'updatedAt', 'seedKey', 'seedActorId', 'counterTaskId', 'maintenance', 'maintenanceResume'])
+        && data.code is string && data.code.matches('^NIRI-[A-Z0-9]{6}$')
+        && data.name is string && data.name == data.name.trim() && data.name.size() >= 3 && data.name.size() <= 80
+        && data.description is string && data.description.size() <= 2000
+        && validId(data.ownerId) && validMembers(data.memberIds, data.ownerId)
+        && data.status in ['planning', 'active', 'on_hold', 'completed', 'archived'] && data.priority in ['low', 'medium', 'high', 'critical']
+        && validDate(data.startDate) && validDate(data.dueDate) && data.dueDate >= data.startDate
+        && data.taskTotal is int && data.taskDone is int && data.taskTotal >= 0 && data.taskDone >= 0 && data.taskDone <= data.taskTotal
+        && (data.get('counterTaskId', null) == null || validId(data.counterTaskId))
+        && data.get('maintenance', null) in [null, 'acl', 'delete', 'recount'] && data.get('maintenanceResume', null) in [null, 'delete']
+        && data.createdAt is timestamp && data.updatedAt is timestamp && seedFields(data);
+    }
+    function validTask(data) {
+      return data.keys().hasAll(['projectId', 'title', 'description', 'assigneeId', 'status', 'priority', 'dueDate', 'estimateHours', 'tags', 'position', 'ownerId', 'createdBy', 'memberIds', 'completedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['projectId', 'title', 'description', 'assigneeId', 'status', 'priority', 'dueDate', 'estimateHours', 'tags', 'position', 'ownerId', 'createdBy', 'memberIds', 'completedAt', 'createdAt', 'updatedAt', 'seedKey', 'seedActorId', 'deleting'])
+        && validId(data.projectId) && validId(data.ownerId) && validId(data.createdBy) && validMembers(data.memberIds, data.ownerId)
+        && data.title is string && data.title == data.title.trim() && data.title.size() >= 3 && data.title.size() <= 120
+        && data.description is string && data.description.size() <= 5000 && (data.assigneeId == null || validId(data.assigneeId))
+        && data.status in ['todo', 'in_progress', 'review', 'done'] && data.priority in ['low', 'medium', 'high', 'critical']
+        && (data.dueDate == null || data.dueDate == '' || validDate(data.dueDate))
+        && data.estimateHours is number && data.estimateHours >= 0 && data.estimateHours <= 10000
+        && data.position is number && data.position >= -1000000000 && data.position <= 1000000000
+        && data.tags is list && data.tags.size() <= 10 && data.tags.toSet().size() == data.tags.size()
+        && !('' in data.tags) && data.tags.join('').size() <= 300
+        && (data.status == 'done' ? data.completedAt is timestamp && data.completedAt <= request.time : data.completedAt == null)
+        && data.get('deleting', false) is bool && data.createdAt is timestamp && data.updatedAt is timestamp && seedFields(data);
+    }
+    function validComment(data) {
+      return data.keys().hasAll(['taskId', 'projectId', 'authorId', 'body', 'memberIds', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['taskId', 'projectId', 'authorId', 'body', 'memberIds', 'createdAt', 'updatedAt', 'seedKey', 'seedActorId'])
+        && validId(data.taskId) && validId(data.projectId) && validId(data.authorId)
+        && data.body is string && data.body == data.body.trim() && data.body.size() >= 1 && data.body.size() <= 500
+        && data.memberIds is list && data.memberIds.size() >= 1 && data.memberIds.size() <= 20
+        && data.createdAt is timestamp && data.updatedAt is timestamp && seedFields(data);
+    }
+    function validActivity(data) {
+      return data.keys().hasAll(['projectId', 'memberIds', 'actorId', 'entity', 'entityId', 'action', 'summary', 'createdAt'])
+        && data.keys().hasOnly(['projectId', 'memberIds', 'actorId', 'entity', 'entityId', 'action', 'summary', 'createdAt', 'seedKey', 'seedActorId'])
+        && (data.projectId == null || validId(data.projectId)) && validId(data.actorId) && validId(data.entityId)
+        && data.entity in ['project', 'task', 'comment', 'user'] && data.action in ['create', 'update', 'delete', 'move']
+        && data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 500
+        && data.memberIds is list && data.memberIds.size() >= 1 && data.memberIds.size() <= 20
+        && data.createdAt is timestamp && seedFields(data);
+    }
+    function done(data) { return data.status == 'done' ? 1 : 0; }
+    function readableChild(data) {
+      // Nonadmin queries MUST constrain projectId, sharing one parent get per page.
+      // Snapshot child membership alone would leave revoked readers authorized.
+      return admin() || (member(data) && member(get(projectPath(data.projectId)).data));
+    }
+    function counterAfter(projectId, taskId, totalDelta, doneDelta) {
+      let before = get(projectPath(projectId)).data;
+      let after = getAfter(projectPath(projectId)).data;
+      return after.get('counterTaskId', null) == taskId && after.updatedAt == request.time
+        && after.taskTotal == before.taskTotal + totalDelta && after.taskDone == before.taskDone + doneDelta;
+    }
+    function counterWitness(projectId, beforeProject, afterProject) {
+      let id = afterProject.get('counterTaskId', '');
+      // Missing resources are guarded explicitly. No .data access on a deleted task.
+      // Before/after lookups of one task are cached inside this write's call budget.
+      return validId(id) && (
+        (!exists(taskPath(id)) && existsAfter(taskPath(id))
+          && getAfter(taskPath(id)).data.projectId == projectId && getAfter(taskPath(id)).data.updatedAt == request.time
+          && afterProject.taskTotal == beforeProject.taskTotal + 1 && afterProject.taskDone == beforeProject.taskDone + done(getAfter(taskPath(id)).data))
+        || (exists(taskPath(id)) && !existsAfter(taskPath(id)) && get(taskPath(id)).data.projectId == projectId
+          && afterProject.taskTotal == beforeProject.taskTotal - 1 && afterProject.taskDone == beforeProject.taskDone - done(get(taskPath(id)).data))
+        || (exists(taskPath(id)) && existsAfter(taskPath(id)) && get(taskPath(id)).data.projectId == projectId && getAfter(taskPath(id)).data.projectId == projectId
+          && getAfter(taskPath(id)).data.updatedAt == request.time && afterProject.taskTotal == beforeProject.taskTotal
+          && done(getAfter(taskPath(id)).data) != done(get(taskPath(id)).data)
+          && afterProject.taskDone == beforeProject.taskDone + done(getAfter(taskPath(id)).data) - done(get(taskPath(id)).data)));
+    }
+    function projectMetadata(before, after) {
+      let changed = after.diff(before).affectedKeys();
+      let oldState = before.get('maintenance', null);
+      let newState = after.get('maintenance', null);
+      return (owner(before) || admin()) && changed.hasOnly(['name', 'description', 'memberIds', 'status', 'priority', 'startDate', 'dueDate', 'maintenance', 'updatedAt']) && after.get('maintenanceResume', null) == before.get('maintenanceResume', null)
+        && ((oldState == null && newState == null && after.memberIds == before.memberIds)
+          || (oldState == null && newState == 'acl' && after.memberIds != before.memberIds)
+          || (oldState == 'acl' && newState == 'acl')
+          || (oldState == 'acl' && newState == null && changed.hasOnly(['maintenance', 'updatedAt']))
+          || (oldState == null && newState == 'delete' && owner(before) && changed.hasOnly(['maintenance', 'updatedAt']))
+          || (oldState == null && newState == 'recount' && admin() && changed.hasOnly(['maintenance', 'updatedAt'])));
+    }
+    function taskIdentity(before, after) { return after.projectId == before.projectId && after.ownerId == before.ownerId && after.createdBy == before.createdBy && after.createdAt == before.createdAt && seedUnchanged(before, after); }
+    function taskAcl(before, after, project) {
+      return project.get('maintenance', null) == 'acl' && (owner(project) || admin())
+        && after.diff(before).affectedKeys().hasOnly(['memberIds', 'assigneeId', 'updatedAt'])
+        && after.memberIds == project.memberIds
+        && after.assigneeId == (before.assigneeId == null || before.assigneeId in project.memberIds ? before.assigneeId : null);
+    }
+    function taskLock(before, after, project) {
+      return project.get('maintenance', null) == null && (member(project) || admin())
+        && (request.auth.uid == before.createdBy || owner(project))
+        && after.diff(before).affectedKeys().hasOnly(['deleting', 'updatedAt']);
+    }
+    function taskEdit(taskId, before, after, project) {
+      return project.get('maintenance', null) == null && !before.get('deleting', false)
+        && after.get('deleting', false) == false
+        && (member(project) || admin()) && after.memberIds == project.memberIds && after.ownerId == project.ownerId
+        && (after.assigneeId == null || after.assigneeId in project.memberIds)
+        && (before.status == 'done' && after.status == 'done' ? after.completedAt == before.completedAt : true)
+        && ((after.status == 'done') == (before.status == 'done')
+          || (getAfter(projectPath(before.projectId)).data.get('counterTaskId', null) == taskId
+            && getAfter(projectPath(before.projectId)).data.updatedAt == request.time
+            && getAfter(projectPath(before.projectId)).data.taskTotal == project.taskTotal
+            && getAfter(projectPath(before.projectId)).data.taskDone == project.taskDone + done(after) - done(before)));
+    }
+    // Audit validation binds a new record to its entity's same-operation write.
+    // Mandatory audit creation itself is an adapter contract (tested as one tx/batch).
+    function entityPath(data) {
+      return data.entity == 'project' ? projectPath(data.entityId) : data.entity == 'task' ? taskPath(data.entityId) : data.entity == 'comment' ? commentPath(data.entityId) : userPath(data.entityId);
+    }
+    function sameOperation(data) {
+      return (data.action == 'create' && !exists(entityPath(data)) && existsAfter(entityPath(data)) && getAfter(entityPath(data)).data.createdAt == request.time)
+        || (data.action in ['update', 'move'] && exists(entityPath(data)) && existsAfter(entityPath(data))
+          && getAfter(entityPath(data)).data.get('updatedAt', null) == request.time)
+        || (data.action == 'delete' && exists(entityPath(data)) && !existsAfter(entityPath(data)));
+    }
+    function auditAcl(data) {
+      return existsAfter(projectPath(data.projectId))
+        ? (data.memberIds == getAfter(projectPath(data.projectId)).data.memberIds && (member(getAfter(projectPath(data.projectId)).data) || admin()))
+        : (exists(projectPath(data.projectId)) && data.entity == 'project' && data.action == 'delete'
+          && owner(get(projectPath(data.projectId)).data) && data.memberIds == get(projectPath(data.projectId)).data.memberIds);
+    }
+
+    match /users/{uid} {
+      allow get: if signedIn();
+      allow list: if signedIn() && request.query.limit > 0 && request.query.limit <= 60;
+      allow create: if signedIn() && validUser(request.resource.data) && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time
+        && ((uid == request.auth.uid && request.resource.data.role == 'member' && !request.resource.data.isPlaceholder
+             && request.resource.data.email == request.auth.token.email && !('seedKey' in request.resource.data))
+          || (admin() && uid.matches('^placeholder_[A-Za-z0-9_-]+$') && request.resource.data.isPlaceholder && request.resource.data.role == 'member'));
+      allow update: if signedIn() && validUser(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt && request.resource.data.email == resource.data.email
+        && request.resource.data.isPlaceholder == resource.data.isPlaceholder && request.resource.data.updatedAt == request.time && seedUnchanged(resource.data, request.resource.data)
+        && ((uid == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarColor', 'updatedAt']))
+          || (admin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatarColor', 'role', 'updatedAt']) && (!resource.data.isPlaceholder || request.resource.data.role == 'member')));
+      allow delete: if admin() && resource.data.isPlaceholder;
+    }
+    match /seedRegistry/{actorId} {
+      allow get: if signedIn() && actorId == request.auth.uid && admin();
+      // Auto-ID reservations are actor-private, monotonic and bounded. Registry data
+      // cannot grant entity access; all entity writes independently validate ACLs.
+      allow create: if signedIn() && actorId == request.auth.uid && admin()
+        && request.resource.data.keys().hasOnly(['actorId', 'entries', 'updatedAt']) && request.resource.data.actorId == actorId
+        && request.resource.data.entries is map && request.resource.data.entries.size() <= 1 && request.resource.data.updatedAt == request.time;
+      allow update: if signedIn() && actorId == request.auth.uid && admin()
+        && request.resource.data.keys().hasOnly(['actorId', 'entries', 'updatedAt']) && request.resource.data.actorId == actorId
+        && request.resource.data.entries is map && request.resource.data.entries.size() <= 500
+        && request.resource.data.entries.diff(resource.data.entries).removedKeys().size() == 0
+        && request.resource.data.entries.diff(resource.data.entries).changedKeys().size() == 0
+        && request.resource.data.entries.diff(resource.data.entries).addedKeys().size() <= 1 && request.resource.data.updatedAt == request.time;
+      allow list, delete: if false;
+    }
+    match /projects/{projectId} {
+      allow get: if member(resource.data) || admin();
+      allow list: if request.query.limit > 0 && request.query.limit <= 24 && (member(resource.data) || admin());
+      allow create: if signedIn() && validProject(request.resource.data) && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.taskTotal == 0 && request.resource.data.taskDone == 0 && request.resource.data.get('maintenance', null) == null
+        && request.resource.data.get('counterTaskId', null) == null && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time;
+      allow update: if signedIn() && validProject(request.resource.data) && (member(resource.data) || admin())
+        && request.resource.data.ownerId == resource.data.ownerId && request.resource.data.code == resource.data.code
+        && request.resource.data.createdAt == resource.data.createdAt && request.resource.data.updatedAt == request.time && seedUnchanged(resource.data, request.resource.data)
+        && (projectMetadata(resource.data, request.resource.data)
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['taskTotal', 'taskDone', 'counterTaskId', 'updatedAt'])
+            && counterWitness(projectId, resource.data, request.resource.data))
+          || (admin() && resource.data.get('maintenance', null) == 'delete' && request.resource.data.get('maintenance', null) == 'recount'
+            && request.resource.data.get('maintenanceResume', null) == 'delete' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['maintenance', 'maintenanceResume', 'updatedAt']))
+          || (admin() && resource.data.get('maintenance', null) == 'recount'
+            && request.resource.data.get('maintenance', null) == resource.data.get('maintenanceResume', null)
+            && request.resource.data.get('maintenanceResume', null) == null
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['taskTotal', 'taskDone', 'maintenance', 'maintenanceResume', 'updatedAt'])));
+      allow delete: if owner(resource.data) && resource.data.get('maintenance', null) == 'delete' && resource.data.taskTotal == 0 && resource.data.taskDone == 0;
+    }
+    match /tasks/{taskId} {
+      allow get: if readableChild(resource.data);
+      allow list: if request.query.limit > 0 && request.query.limit <= 150 && readableChild(resource.data);
+      allow create: if signedIn() && validTask(request.resource.data)
+        && request.resource.data.createdBy == request.auth.uid && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time
+        && !request.resource.data.get('deleting', false)
+        && get(projectPath(request.resource.data.projectId)).data.get('maintenance', null) == null
+        && (member(get(projectPath(request.resource.data.projectId)).data) || admin())
+        && request.resource.data.ownerId == getAfter(projectPath(request.resource.data.projectId)).data.ownerId
+        && request.resource.data.memberIds == getAfter(projectPath(request.resource.data.projectId)).data.memberIds
+        && (request.resource.data.assigneeId == null || request.resource.data.assigneeId in request.resource.data.memberIds)
+        && counterAfter(request.resource.data.projectId, taskId, 1, done(request.resource.data));
+      allow update: if signedIn() && validTask(request.resource.data) && taskIdentity(resource.data, request.resource.data) && request.resource.data.updatedAt == request.time
+        && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deleting', 'updatedAt'])
+            && taskLock(resource.data, request.resource.data, get(projectPath(resource.data.projectId)).data))
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds', 'assigneeId', 'updatedAt'])
+            && taskAcl(resource.data, request.resource.data, get(projectPath(resource.data.projectId)).data))
+          || taskEdit(taskId, resource.data, request.resource.data, get(projectPath(resource.data.projectId)).data));
+      allow delete: if signedIn() && (member(get(projectPath(resource.data.projectId)).data) || admin())
+        && (resource.data.createdBy == request.auth.uid || owner(get(projectPath(resource.data.projectId)).data))
+        && ((get(projectPath(resource.data.projectId)).data.get('maintenance', null) == null && resource.data.get('deleting', false))
+          || (get(projectPath(resource.data.projectId)).data.get('maintenance', null) == 'delete' && owner(get(projectPath(resource.data.projectId)).data)))
+        && counterAfter(resource.data.projectId, taskId, -1, -done(resource.data));
+    }
+    match /comments/{commentId} {
+      allow get: if readableChild(resource.data);
+      allow list: if request.query.limit > 0 && request.query.limit <= 50 && readableChild(resource.data);
+      allow create: if signedIn() && validComment(request.resource.data) && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time
+        && get(projectPath(request.resource.data.projectId)).data.get('maintenance', null) == null
+        && getAfter(projectPath(request.resource.data.projectId)).data.get('maintenance', null) == null
+        && (member(getAfter(projectPath(request.resource.data.projectId)).data) || admin())
+        && request.resource.data.memberIds == getAfter(projectPath(request.resource.data.projectId)).data.memberIds
+        && getAfter(taskPath(request.resource.data.taskId)).data.projectId == request.resource.data.projectId
+        && !getAfter(taskPath(request.resource.data.taskId)).data.get('deleting', false);
+      // Comments have no body-edit API. Only the project owner/admin may propagate
+      // ACL while locked in 'acl'; all body/identity/timestamps stay byte-for-byte.
+      allow update: if signedIn() && (owner(get(projectPath(resource.data.projectId)).data) || admin())
+        && get(projectPath(resource.data.projectId)).data.get('maintenance', null) == 'acl'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds'])
+        && request.resource.data.memberIds == get(projectPath(resource.data.projectId)).data.memberIds;
+      allow delete: if signedIn() && (member(get(projectPath(resource.data.projectId)).data) || admin())
+        && (resource.data.authorId == request.auth.uid || owner(get(projectPath(resource.data.projectId)).data));
+    }
+    match /activity/{activityId} {
+      // Historical snapshot ACL is intentional: revocation affects current project
+      // children immediately, not audit already shared with a member at write time.
+      allow get: if member(resource.data) || admin();
+      allow list: if request.query.limit > 0 && request.query.limit <= 50 && (member(resource.data) || admin());
+      allow create: if signedIn() && validActivity(request.resource.data) && request.resource.data.actorId == request.auth.uid && request.resource.data.createdAt == request.time
+        && (request.resource.data.projectId == null
+          ? (request.resource.data.entity == 'user' && request.resource.data.memberIds == [request.auth.uid] && sameOperation(request.resource.data))
+          : (auditAcl(request.resource.data)
+            && (sameOperation(request.resource.data)
+              || (admin() && request.resource.data.get('seedActorId', '') == request.auth.uid && request.resource.data.get('seedKey', '').matches('^activity:.*$')))));
+      allow update, delete: if false;
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

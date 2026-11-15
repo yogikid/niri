@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 58" role="img" aria-label="NiRi">
+  <rect x="7" y="7" width="48" height="48" rx="10" fill="var(--ink, currentColor)"/>
+  <rect x="2" y="2" width="48" height="48" rx="10" fill="var(--pink-primary, none)" stroke="var(--ink, currentColor)" stroke-width="3"/>
+  <path d="m13 26 8 8 16-17M32 38h7" fill="none" stroke="var(--ink, currentColor)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

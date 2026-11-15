@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 178 58" role="img" aria-labelledby="title">
+  <title id="title">NiRi</title>
+  <g id="wordmark">
+    <rect x="5" y="5" width="46" height="46" rx="9" fill="var(--ink)"/>
+    <rect x="1.5" y="1.5" width="46" height="46" rx="9" fill="var(--pink-primary)" stroke="var(--ink)" stroke-width="3"/>
+    <path d="m12 24 7 7 15-16M30 34h6" fill="none" stroke="var(--ink)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <g fill="var(--ink)">
+      <path d="M64 44V7h7l14 23V7h8v37h-7L72 21v23zM101 18h8v26h-8zM101 7h8v7h-8zM118 44V7h16q13 0 13 12 0 8-7 11l9 14h-10l-8-13h-5v13zm8-20h8q5 0 5-5t-5-5h-8zM157 18h8v26h-8zM157 7h8v7h-8z"/>
+    </g>
+  </g>
+</svg>

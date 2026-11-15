@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NiRi — Pengujian Backend (Increment 2–4)</title>
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../css/tokens.css">
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/components.css">
+</head>
+<body>
+  <main class="test-page">
+    <a href="../index.html">← Kembali ke NiRi</a>
+    <h1>Pengujian Backend NiRi (Increment 2–4)</h1>
+    <p>Pengujian native tanpa pustaka: adapter lokal, service, dan SDK Firestore palsu yang memeriksa query berbatas, pagination, transaksi, audit append-only, seed aktual, dan retry. Tidak menghubungi Firebase. Pemeriksaan berkas Rules bukan pengujian emulator.</p>
+    <pre id="backend-results">Menjalankan pengujian…</pre>
+  </main>
+  <script type="module">
+    import('./backend-tests.js').catch((error) => {
+      const result = { passed: 0, failed: 1, total: 1, failures: [{ name: 'Memuat pengujian', message: error.message }] };
+      document.querySelector('#backend-results').textContent = JSON.stringify(result, null, 2);
+      window.__backendResults = result;
+    });
+  </script>
+</body>
+</html>

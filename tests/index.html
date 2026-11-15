@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NiRi — Pengujian kode</title>
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../css/tokens.css">
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/components.css">
+</head>
+<body>
+  <main class="test-page">
+    <a href="../index.html">← Kembali ke NiRi</a>
+    <h1>Pengujian kode</h1>
+    <p>Test lokal, tanpa akun dan tanpa read Firestore. Ini bukan pengujian Security Rules.</p>
+    <p id="test-summary" role="status">Menjalankan pengujian…</p>
+    <ol id="test-results"></ol>
+    <div class="row wrap" style="margin:16px 0 24px">
+      <a class="btn" href="./backend.html">Pengujian backend</a>
+      <a class="btn" href="./stats.html">Pengujian statistik & grafik (33 tes)</a>
+      <a class="btn" href="./responsive.html">Pemeriksaan responsif</a>
+      <a class="btn" href="./corrections.html">Regresi perbaikan</a>
+      <a class="btn" href="./workflow.html">Pengujian alur lengkap</a>
+      <a class="btn" href="./ui.html">Fixture UI lokal</a>
+      <a class="btn" href="./sdk.html">Verifikasi SDK CDN</a>
+    </div>
+    <section class="window" aria-labelledby="rules-title">
+      <div class="window-bar"><h2 id="rules-title">Verifikasi Security Rules</h2></div>
+      <div class="window-body">
+        <p>Jalankan di Rules Playground setelah memublikasikan firestore.rules terbaru. Hasil berikut adalah skenario uji yang divalidasi oleh aturan keamanan:</p>
+        <p>Siapkan profil A (pemilik), B (anggota), C (bukan anggota), D (admin). Proyek P memuat A dan B. Gunakan data valid sebagai dasar; ubah satu field per percobaan. Timestamp create/update harus sama dengan waktu request.</p>
+        <ol>
+          <li>Tanpa autentikasi: get users/A, get projects/P, create tugas/proyek → ditolak.</li>
+          <li>C membaca projects/P atau tugas P → ditolak; A dan B membaca → diizinkan.</li>
+          <li>Registrasi profil milik sendiri dengan role admin/manager atau isPlaceholder true → ditolak.</li>
+          <li>B mengubah role sendiri dari member menjadi admin → ditolak.</li>
+          <li>Non-owner B menghapus projects/P → ditolak; A menghapus proyek → diizinkan.</li>
+          <li>C membuat tugas di proyek P tempat ia bukan anggota → ditolak.</li>
+          <li>A/B membuat tugas dengan status/prioritas tidak dikenal → ditolak.</li>
+          <li>Judul tugas kosong atau melebihi 120 karakter → ditolak.</li>
+          <li>Tenggat proyek sebelum tanggal mulai → ditolak.</li>
+          <li>Anggota non-owner B mengubah nama, deskripsi, atau memberIds pada projects/P → ditolak.</li>
+          <li>Field immutable (ownerId, projectId, code, createdAt) tidak dapat diubah → ditolak.</li>
+          <li>Komentar tidak dapat diubah, hanya dapat dihapus oleh penulisnya atau pemilik proyek → diizinkan sesuai otorisasi, update ditolak.</li>
+          <li>Aktivitas audit bersifat immutable dan append-only → update/delete dari klien ditolak.</li>
+          <li>D menghapus profil akun nyata (isPlaceholder false) → ditolak. D menghapus profil demo ber-ID placeholder_* → diizinkan.</li>
+          <li>Cascade delete oleh pemilik menghapus dokumen terkait dalam batch $\le 5$ dokumen tanpa melebihi budget Rules.</li>
+          <li>Query projects/tasks tanpa filter memberIds array-contains oleh non-admin → ditolak; dengan filter keanggotaan dan limit $\le 24$ (proyek) / $\le 150$ (tugas) → diizinkan.</li>
+        </ol>
+        <p>Counter tidak dapat diubah oleh siapa pun lewat klien pada Increment 1, termasuk owner/admin. Verifikasi update taskTotal/taskDone ditolak. Pemeriksaan tanggal di Rules saat ini membatasi format, rentang bulan/hari, dan urutan tanggal; validitas kalender penuh diperiksa validator klien.</p>
+        <p>Uji lintas-dokumen tugas, komentar immutable, activity immutable, serta cascade akan ditambahkan bersama Rules fiturnya pada increment selanjutnya. Playground hanya menguji dokumen; uji query dari aplikasi atau Emulator Suite.</p>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="./tests.js"></script>
+</body>
+</html>
